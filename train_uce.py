@@ -113,3 +113,11 @@ class TransformerModel(nn.Module):
             (torch.hstack((cell_embedding, gene_embeddings)))
         return dec
 
+
+#load UCE model
+model = TransformerModel(token_dim=5120, d_model=1280, nhead=20, d_hid=5120, nlayers=4, dropout=0.05, output_dim=1280)
+zero_pe = torch.zeros(145469, 5120)
+zero_pe.requires_grad = False
+model.pe_embedding = nn.Embedding.from_pretrained(zero_pe)
+model.load_state_dict(torch.load("models/4layer_model.torch", map_location="cpu"), strict=True)
+print("yes, didn't crash")
