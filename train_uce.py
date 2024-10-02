@@ -13,6 +13,9 @@ import sys
 sys.path.append('../')
 from typing import Any
 import torch
+import pickle
+import scanpy as sc
+import pandas as pd
 
 
 def full_block(in_features, out_features, p_drop=0.1):
@@ -119,5 +122,49 @@ model = TransformerModel(token_dim=5120, d_model=1280, nhead=20, d_hid=5120, nla
 zero_pe = torch.zeros(145469, 5120)
 zero_pe.requires_grad = False
 model.pe_embedding = nn.Embedding.from_pretrained(zero_pe)
-model.load_state_dict(torch.load("models/4layer_model.torch", map_location="cpu"), strict=True)
-print("yes, didn't crash")
+model.load_state_dict(torch.load("model_files/4layer_model.torch", map_location="cpu"), strict=True)
+
+
+#Dataloader
+batch_size = 25
+
+def prepare_anndata(anndata_path, species):
+    #first, we process the adata file
+    print(f"Proccessing {anndata_path}")
+    adata  = sc.read(anndata_path)
+    adata.var.index = adata.var["feature_name"]
+    
+    print("adata:", adata)
+
+    embeddings_paths = {
+            'human': 'model_files/protein_embeddings/Homo_sapiens.GRCh38.gene_symbol_to_embedding_ESM2.pt',
+            'mouse': 'model_files/protein_embeddings/Mus_musculus.GRCm39.gene_symbol_to_embedding_ESM2.pt',
+            'frog': 'model_files/protein_embeddings/Xenopus_tropicalis.Xenopus_tropicalis_v9.1.gene_symbol_to_embedding_ESM2.pt',
+            'zebrafish': 'model_files/protein_embeddings/Danio_rerio.GRCz11.gene_symbol_to_embedding_ESM2.pt',
+            "mouse_lemur": "model_files/protein_embeddings/Microcebus_murinus.Mmur_3.0.gene_symbol_to_embedding_ESM2.pt",
+            "pig": 'model_files/protein_embeddings/Sus_scrofa.Sscrofa11.1.gene_symbol_to_embedding_ESM2.pt',
+            "macaca_fascicularis": 'model_files/protein_embeddings/Macaca_fascicularis.Macaca_fascicularis_6.0.gene_symbol_to_embedding_ESM2.pt',
+            "macaca_mulatta": 'model_files/protein_embeddings/Macaca_mulatta.Mmul_10.gene_symbol_to_embedding_ESM2.pt',
+        }
+    species_to_pe = {
+        species:torch.load(pe_dir) for species, pe_dir in embeddings_paths.items()
+    }
+    species_to_pe = {species:{k.upper(): v for k,v in pe.items()} for species, pe in species_to_pe.items()}
+    
+    with open("model_files/species_offsets.pkl", 'rb') as f:
+        species_to_offsets = pickle.load(f)
+
+    gene_to_chrom_pos = pd.read_csv("model_files/species_chrom.csv")
+    gene_to_chrom_pos["spec_chrom"] = pd.Categorical(gene_to_chrom_pos["species"] + "_" +  gene_to_chrom_pos["chromosome"])
+
+    #select data for wanted species
+    spec_pe_genes = list(species_to_pe[species].keys())
+    offset = species_to_offsets[species]
+
+    #subset anndata to genes we have embeddings for 
+    genes_to_use = {gene for gene in adata.var_names if gene in spec_pe_genes}
+    adata = adata[:, adata.var_names.isin(genes_to_use)]
+    
+
+
+prepare_anndata("data/4719dfe0-143b-43f1-8e15-e5414624b857.h5ad", "human")
